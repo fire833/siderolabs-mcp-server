@@ -8,7 +8,8 @@
 | ------- | ------------ |
 | Omni | `OMNI_ENDPOINT` and `OMNI_SERVICE_ACCOUNT_KEY` set |
 | Talos (direct) | usable talosconfig (`TALOSCONFIG` or `~/.talos/config`; `--talos-context` picks a context) |
-| Image Factory | always (`--image-factory-url`, default `https://factory.talos.dev`) |
+| Image Factory | always (`--image-factory-url`, default `https://factory.talos.dev`; `IMAGE_FACTORY_TOKEN` is sent as a bearer token if set) |
+| Image Factory Enterprise | the factory identifies itself as Image Factory Enterprise at startup |
 
 What an agent may actually call is decided by the [policy](#policy).
 
@@ -24,10 +25,14 @@ What an agent may actually call is decided by the [policy](#policy).
 | `talos_logs` | Service logs (like `talosctl logs`) |
 | `talos_dmesg` | Kernel log (like `talosctl dmesg`) |
 | `talos_version` | Talos version (like `talosctl version`) |
+| `factory_info` | Image Factory edition (standard or enterprise) and version |
 | `factory_versions` | Talos versions available in Image Factory |
 | `factory_extensions` | System extensions and overlays for a Talos version |
 | `factory_schematic_get` | Get a schematic by ID |
 | `factory_schematic_create` | Upload a schematic, returns ID and image references |
+| `factory_spdx` | SPDX SBOM bundle for a schematic, Talos version and architecture (Enterprise) |
+| `factory_scan_report` | Vulnerability scan report as table, JSON, SARIF or CycloneDX (Enterprise) |
+| `factory_vex` | VEX document for a Talos version (Enterprise) |
 
 Talos tools take `nodes` and an optional `cluster`: with `cluster` the request is routed through Omni, without it the local talosconfig is used.
 

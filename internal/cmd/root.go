@@ -78,7 +78,7 @@ func run(ctx context.Context, cmd *cli.Command, serve func(*mcp.Server) error) e
 		talos.Register(server, routes)
 	}
 
-	if err = imagefactory.Register(server, cmd.String("image-factory-url")); err != nil {
+	if err = imagefactory.Register(ctx, server, cmd.String("image-factory-url")); err != nil {
 		return err
 	}
 
