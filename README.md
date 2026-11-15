@@ -1,6 +1,6 @@
 # siderolabs-mcp-server
 
-[MCP](https://modelcontextprotocol.io) server exposing Sidero Labs products ([Omni](https://github.com/siderolabs/omni), [Talos](https://github.com/siderolabs/talos), Image Factory) to agents over stdio or HTTP.
+[MCP](https://modelcontextprotocol.io) server exposing Sidero Labs products ([Omni](https://github.com/siderolabs/omni), [Talos](https://github.com/siderolabs/talos), [Image Factory](https://github.com/siderolabs/image-factory)) to agents over stdio or HTTP.
 
 ## Backends
 
@@ -65,6 +65,12 @@ everything except `omni_kubeconfig` (which mints cluster-admin credentials), and
 Create an Omni service account (`omnictl serviceaccount create mcp`) and pass its credentials to the server
 through `OMNI_ENDPOINT` and `OMNI_SERVICE_ACCOUNT_KEY`.
 Template file references (like patch files) are resolved relative to, and confined to, the server's working directory.
+
+> [!IMPORTANT]
+> One server instance talks to exactly one Omni instance.
+> To reach several Omni instances, run one server per instance, each with its own `OMNI_ENDPOINT` and `OMNI_SERVICE_ACCOUNT_KEY`,
+> and register each under a distinct name in your MCP client (e.g. `siderolabs-prod`, `siderolabs-staging`),
+> so the agent can tell their identically named tools apart.
 
 ### stdio
 

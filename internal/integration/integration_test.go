@@ -312,7 +312,7 @@ func TestE2E(t *testing.T) {
 	})
 
 	t.Run("template-sync", func(t *testing.T) {
-		s.mustCall(t, "omni_template_sync", map[string]any{"template": tmpl})
+		s.mustCall(t, "omni_template_sync", map[string]any{"template": tmpl, "dry_run": false})
 
 		eventually(t, readyTimeout, func() error {
 			out, err := s.call(t.Context(), "omni_get", map[string]any{"type": "clusterstatus", "id": clusterName})
@@ -422,7 +422,7 @@ rules:
 		def.mustCall(t, "omni_template_sync", map[string]any{"template": tmpl, "dry_run": true})
 
 		for tool, args := range map[string]map[string]any{
-			"omni_template_sync": {"template": tmpl},
+			"omni_template_sync": {"template": tmpl, "dry_run": false},
 			"omni_kubeconfig":    {"cluster": clusterName},
 		} {
 			if _, err := def.call(t.Context(), tool, args); err == nil || !strings.Contains(err.Error(), "denied by policy") {

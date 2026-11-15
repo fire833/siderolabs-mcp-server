@@ -5,6 +5,7 @@ go 1.27.2
 require (
 	cel.dev/cel-go v0.33.0
 	github.com/cosi-project/runtime v1.16.5
+	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/siderolabs/image-factory v1.8.0
 	github.com/siderolabs/omni/client v1.13.3
@@ -52,7 +53,6 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.22.1 // indirect
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect

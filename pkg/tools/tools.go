@@ -12,6 +12,7 @@ import (
 
 	"github.com/cosi-project/runtime/pkg/resource"
 	"github.com/cosi-project/runtime/pkg/state"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/siderolabs/omni/client/pkg/cosi/labels"
 	"github.com/siderolabs/omni/client/pkg/omnictl/resources"
@@ -19,11 +20,36 @@ import (
 )
 
 // ResourceQuery selects COSI resources, as `omnictl get`/`talosctl get` do.
+//
+// Tools describe type and selector with their own examples, see [InputSchema].
 type ResourceQuery struct {
-	Type      string `json:"type" jsonschema:"resource type, ID or alias as accepted by omnictl get (e.g. clusters, machinestatus)"`
+	Type      string `json:"type"`
 	ID        string `json:"id,omitempty" jsonschema:"resource ID; omit to list all resources of the type"`
 	Namespace string `json:"namespace,omitempty" jsonschema:"resource namespace; defaults to the type's default namespace"`
-	Selector  string `json:"selector,omitempty" jsonschema:"label selector for list, e.g. omni.sidero.dev/cluster=foo"`
+	Selector  string `json:"selector,omitempty"`
+}
+
+// InputSchema infers the input schema of In and lets patch adjust its properties.
+func InputSchema[In any](patch func(props map[string]*jsonschema.Schema)) *jsonschema.Schema {
+	s, err := jsonschema.For[In](nil)
+	if err != nil {
+		panic(err)
+	}
+
+	patch(s.Properties)
+
+	return s
+}
+
+// Tool pairs a tool definition with its typed handler.
+type Tool[In any] struct {
+	Def     *mcp.Tool
+	Handler mcp.ToolHandlerFor[In, any]
+}
+
+// Add registers the tool on the server.
+func Add[In any](server *mcp.Server, t Tool[In]) {
+	mcp.AddTool(server, t.Def, t.Handler)
 }
 
 // Text wraps a string into a tool result.

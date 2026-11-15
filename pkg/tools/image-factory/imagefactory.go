@@ -46,81 +46,104 @@ func Register(server *mcp.Server, baseURL string) error {
 		return fmt.Errorf("failed to create image factory client: %w", err)
 	}
 
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "factory_versions",
-		Description: "List Talos versions available in Image Factory.",
-		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		v, err := c.Versions(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return jsonText(v)
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "factory_extensions",
-		Description: "List system extensions and overlays available in Image Factory for a Talos version.",
-		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in talosVersionInput) (*mcp.CallToolResult, any, error) {
-		ext, err := c.ExtensionsVersions(ctx, in.TalosVersion)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		overlays, err := c.OverlaysVersions(ctx, in.TalosVersion)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return jsonText(map[string]any{"extensions": ext, "overlays": overlays})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "factory_schematic_get",
-		Description: "Get a schematic from Image Factory by ID.",
-		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in schematicGetInput) (*mcp.CallToolResult, any, error) {
-		s, err := c.SchematicGet(ctx, in.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		out, err := s.Marshal()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return tools.Text(string(out)), nil, nil
-	})
-
-	// Schematics are content-addressed, so creating one is idempotent.
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "factory_schematic_create",
-		Description: "Upload a schematic to Image Factory and return its ID along with the installer image and download base URL.",
-		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: new(false)},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in schematicCreateInput) (*mcp.CallToolResult, any, error) {
-		s, err := schematic.Unmarshal([]byte(in.Schematic))
-		if err != nil {
-			return nil, nil, err
-		}
-
-		id, _, err := c.SchematicCreate(ctx, *s)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		u, err := url.Parse(c.BaseURL())
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return tools.Text(fmt.Sprintf("id: %s\ninstaller: %s/installer/%s:<talos_version>\ndownloads: %s/image/%s/<talos_version>/\n",
-			id, u.Host, id, c.BaseURL(), id)), nil, nil
-	})
+	tools.Add(server, factoryVersions(c))
+	tools.Add(server, factoryExtensions(c))
+	tools.Add(server, factorySchematicGet(c))
+	tools.Add(server, factorySchematicCreate(c))
 
 	return nil
+}
+
+func factoryVersions(c *client.Client) tools.Tool[struct{}] {
+	return tools.Tool[struct{}]{
+		Def: &mcp.Tool{
+			Name:        "factory_versions",
+			Description: "List Talos versions available in Image Factory.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			v, err := c.Versions(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return jsonText(v)
+		},
+	}
+}
+
+func factoryExtensions(c *client.Client) tools.Tool[talosVersionInput] {
+	return tools.Tool[talosVersionInput]{
+		Def: &mcp.Tool{
+			Name:        "factory_extensions",
+			Description: "List system extensions and overlays available in Image Factory for a Talos version.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosVersionInput) (*mcp.CallToolResult, any, error) {
+			ext, err := c.ExtensionsVersions(ctx, in.TalosVersion)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			overlays, err := c.OverlaysVersions(ctx, in.TalosVersion)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return jsonText(map[string]any{"extensions": ext, "overlays": overlays})
+		},
+	}
+}
+
+func factorySchematicGet(c *client.Client) tools.Tool[schematicGetInput] {
+	return tools.Tool[schematicGetInput]{
+		Def: &mcp.Tool{
+			Name:        "factory_schematic_get",
+			Description: "Get a schematic from Image Factory by ID.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in schematicGetInput) (*mcp.CallToolResult, any, error) {
+			s, err := c.SchematicGet(ctx, in.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			out, err := s.Marshal()
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return tools.Text(string(out)), nil, nil
+		},
+	}
+}
+
+// Schematics are content-addressed, so creating one is idempotent.
+func factorySchematicCreate(c *client.Client) tools.Tool[schematicCreateInput] {
+	return tools.Tool[schematicCreateInput]{
+		Def: &mcp.Tool{
+			Name:        "factory_schematic_create",
+			Description: "Upload a schematic to Image Factory and return its ID along with the installer image and download base URL.",
+			Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: new(false)},
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in schematicCreateInput) (*mcp.CallToolResult, any, error) {
+			s, err := schematic.Unmarshal([]byte(in.Schematic))
+			if err != nil {
+				return nil, nil, err
+			}
+
+			id, _, err := c.SchematicCreate(ctx, *s)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			u, err := url.Parse(c.BaseURL())
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return tools.Text(fmt.Sprintf("id: %s\ninstaller: %s/installer/%s:<talos_version>\ndownloads: %s/image/%s/<talos_version>/\n",
+				id, u.Host, id, c.BaseURL(), id)), nil, nil
+		},
+	}
 }

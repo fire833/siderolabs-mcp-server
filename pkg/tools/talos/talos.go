@@ -8,6 +8,7 @@ package talos
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/siderolabs/omni/client/pkg/client"
 	"github.com/siderolabs/talos/pkg/machinery/api/common"
@@ -134,50 +136,77 @@ type talosGetInput struct {
 type talosLogsInput struct {
 	Service string `json:"service" jsonschema:"service ID, e.g. kubelet, etcd, apid, machined"`
 	talosTarget
-	TailLines int32 `json:"tail_lines,omitempty" jsonschema:"number of lines from the end, default 200"`
+	TailLines int `json:"tail_lines,omitempty" jsonschema:"number of lines from the end"`
 }
 
 type talosDmesgInput struct {
 	talosTarget
-	TailLines int `json:"tail_lines,omitempty" jsonschema:"number of lines from the end, default 200"`
+	TailLines int `json:"tail_lines,omitempty" jsonschema:"number of lines from the end"`
 }
 
-// talosTool registers a read-only Talos tool which runs fn for each target node.
+const maxTailLines = 10000
+
+// tailLines bounds tail_lines to a meaningful range; the default is applied by the SDK.
+func tailLines(props map[string]*jsonschema.Schema) {
+	p := props["tail_lines"]
+	p.Default = json.RawMessage("200")
+	p.Minimum = new(1.0)
+	p.Maximum = new(float64(maxTailLines))
+}
+
+// talosTool builds a read-only Talos tool which runs fn for each target node.
+//
+// patch, if set, adjusts the inferred input schema properties.
 func talosTool[In interface{ target() talosTarget }](
-	server *mcp.Server, b backends, name, description string,
+	b backends, name, description string,
+	patch func(props map[string]*jsonschema.Schema),
 	fn func(ctx context.Context, c *talosclient.Client, in In) (string, error),
-) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        name,
-		Description: description,
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-		t := in.target()
+) tools.Tool[In] {
+	return tools.Tool[In]{
+		Def: &mcp.Tool{
+			Name:        name,
+			Description: description,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			InputSchema: tools.InputSchema[In](func(props map[string]*jsonschema.Schema) {
+				// a nil slice infers as ["null", "array"]
+				props["nodes"].Types = nil
+				props["nodes"].Type = "array"
+				props["nodes"].MinItems = new(1)
+				props["nodes"].Items.MinLength = new(1)
 
-		if len(t.Nodes) == 0 {
-			return nil, nil, errors.New("at least one node is required")
-		}
+				if patch != nil {
+					patch(props)
+				}
+			}),
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+			t := in.target()
 
-		c, release, err := b.client(ctx, t.Cluster)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		defer release()
-
-		var sb strings.Builder
-
-		for _, node := range t.Nodes {
-			out, err := fn(talosclient.WithNode(ctx, node), c, in)
-			if err != nil {
-				out = "error: " + err.Error() + "\n"
+			if len(t.Nodes) == 0 {
+				return nil, nil, errors.New("at least one node is required")
 			}
 
-			fmt.Fprintf(&sb, "--- node %s ---\n%s", node, out)
-		}
+			c, release, err := b.client(ctx, t.Cluster)
+			if err != nil {
+				return nil, nil, err
+			}
 
-		return tools.Text(sb.String()), nil, nil
-	})
+			defer release()
+
+			var sb strings.Builder
+
+			for _, node := range t.Nodes {
+				out, err := fn(talosclient.WithNode(ctx, node), c, in)
+				if err != nil {
+					out = "error: " + err.Error() + "\n"
+				}
+
+				fmt.Fprintf(&sb, "--- node %s ---\n%s", node, out)
+			}
+
+			return tools.Text(sb.String()), nil, nil
+		},
+	}
 }
 
 func (t talosTarget) target() talosTarget { return t }
@@ -191,30 +220,42 @@ func Register(server *mcp.Server, routes Backends) {
 		b.omni = &omniTalos{c: routes.Omni, key: os.Getenv("OMNI_SERVICE_ACCOUNT_KEY")}
 	}
 
-	talosTool(server, b, "talos_get",
+	tools.Add(server, talosGet(b))
+	tools.Add(server, talosLogs(b))
+	tools.Add(server, talosDmesg(b))
+	tools.Add(server, talosVersion(b))
+}
+
+func talosGet(b backends) tools.Tool[talosGetInput] {
+	return talosTool(b, "talos_get",
 		"Get or list Talos COSI resources as YAML on each node, equivalent to `talosctl get`. Use type 'rd' to discover available types.",
+		func(props map[string]*jsonschema.Schema) {
+			props["type"].Description = "resource type or alias as accepted by talosctl get, e.g. members, service, machineconfig"
+			props["selector"].Description = "label selector for list, e.g. key=value"
+		},
 		func(ctx context.Context, c *talosclient.Client, in talosGetInput) (string, error) {
 			return tools.GetResources(ctx, c.COSI, in.ResourceQuery)
 		})
+}
 
-	talosTool(server, b, "talos_logs",
+func talosLogs(b backends) tools.Tool[talosLogsInput] {
+	return talosTool(b, "talos_logs",
 		"Get service logs from each node, equivalent to `talosctl logs`.",
+		tailLines,
 		func(ctx context.Context, c *talosclient.Client, in talosLogsInput) (string, error) {
-			tail := in.TailLines
-			if tail <= 0 {
-				tail = 200
-			}
-
-			stream, err := c.Logs(ctx, constants.SystemContainerdNamespace, common.ContainerDriver_CONTAINERD, in.Service, false, tail)
+			stream, err := c.Logs(ctx, constants.SystemContainerdNamespace, common.ContainerDriver_CONTAINERD, in.Service, false, int32(in.TailLines))
 			if err != nil {
 				return "", err
 			}
 
 			return readStream(stream.Recv)
 		})
+}
 
-	talosTool(server, b, "talos_dmesg",
+func talosDmesg(b backends) tools.Tool[talosDmesgInput] {
+	return talosTool(b, "talos_dmesg",
 		"Get kernel log from each node, equivalent to `talosctl dmesg`.",
+		tailLines,
 		func(ctx context.Context, c *talosclient.Client, in talosDmesgInput) (string, error) {
 			stream, err := c.Dmesg(ctx, false, false)
 			if err != nil {
@@ -226,18 +267,16 @@ func Register(server *mcp.Server, routes Backends) {
 				return "", err
 			}
 
-			tail := in.TailLines
-			if tail <= 0 {
-				tail = 200
-			}
-
 			lines := strings.SplitAfter(out, "\n")
 
-			return strings.Join(lines[max(0, len(lines)-tail):], ""), nil
+			return strings.Join(lines[max(0, len(lines)-in.TailLines):], ""), nil
 		})
+}
 
-	talosTool(server, b, "talos_version",
+func talosVersion(b backends) tools.Tool[talosTarget] {
+	return talosTool(b, "talos_version",
 		"Get Talos version information from each node, equivalent to `talosctl version`.",
+		nil,
 		func(ctx context.Context, c *talosclient.Client, _ talosTarget) (string, error) {
 			resp, err := c.Version(ctx)
 			if err != nil {
