@@ -6,7 +6,7 @@
 
 services:
   dex:
-    image: dexidp/dex:v2.41.1
+    image: dexidp/dex:v2.46.1
     volumes:
       - ./dex.yaml:/etc/dex/config.yaml:ro
     command: ["dex", "serve", "/etc/dex/config.yaml"]
