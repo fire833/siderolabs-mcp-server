@@ -36,6 +36,8 @@ What an agent may actually call is decided by the [policy](#policy).
 
 Talos tools take `nodes` and an optional `cluster`: with `cluster` the request is routed through Omni, without it the local talosconfig is used.
 
+`MCP_DISABLED_TOOLS` (comma-separated names, e.g. `omni_kubeconfig,omni_template_sync`) removes tools from the server entirely; unknown names are ignored.
+
 ## Policy
 
 `--policy <file>` restricts tool calls.

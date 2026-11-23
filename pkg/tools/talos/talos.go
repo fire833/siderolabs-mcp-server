@@ -154,62 +154,44 @@ func tailLines(props map[string]*jsonschema.Schema) {
 	p.Maximum = new(float64(maxTailLines))
 }
 
-// talosTool builds a read-only Talos tool which runs fn for each target node.
-//
-// patch, if set, adjusts the inferred input schema properties.
-func talosTool[In interface{ target() talosTarget }](
-	b backends, name, description string,
-	patch func(props map[string]*jsonschema.Schema),
-	fn func(ctx context.Context, c *talosclient.Client, in In) (string, error),
-) tools.Tool[In] {
-	return tools.Tool[In]{
-		Def: &mcp.Tool{
-			Name:        name,
-			Description: description,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-			InputSchema: tools.InputSchema[In](func(props map[string]*jsonschema.Schema) {
-				// a nil slice infers as ["null", "array"]
-				props["nodes"].Types = nil
-				props["nodes"].Type = "array"
-				props["nodes"].MinItems = new(1)
-				props["nodes"].Items.MinLength = new(1)
-
-				if patch != nil {
-					patch(props)
-				}
-			}),
-		},
-		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-			t := in.target()
-
-			if len(t.Nodes) == 0 {
-				return nil, nil, errors.New("at least one node is required")
-			}
-
-			c, release, err := b.client(ctx, t.Cluster)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			defer release()
-
-			var sb strings.Builder
-
-			for _, node := range t.Nodes {
-				out, err := fn(talosclient.WithNode(ctx, node), c, in)
-				if err != nil {
-					out = "error: " + err.Error() + "\n"
-				}
-
-				fmt.Fprintf(&sb, "--- node %s ---\n%s", node, out)
-			}
-
-			return tools.Text(sb.String()), nil, nil
-		},
-	}
+// targetSchema fixes the inferred schema of talosTarget.Nodes.
+func targetSchema(props map[string]*jsonschema.Schema) {
+	// a nil slice infers as ["null", "array"]
+	props["nodes"].Types = nil
+	props["nodes"].Type = "array"
+	props["nodes"].MinItems = new(1)
+	props["nodes"].Items.MinLength = new(1)
 }
 
-func (t talosTarget) target() talosTarget { return t }
+// eachNode runs fn against every target node and concatenates the per-node output; node errors are reported inline.
+func (b backends) eachNode(
+	ctx context.Context, t talosTarget,
+	fn func(ctx context.Context, c *talosclient.Client) (string, error),
+) (*mcp.CallToolResult, any, error) {
+	if len(t.Nodes) == 0 {
+		return nil, nil, errors.New("at least one node is required")
+	}
+
+	c, release, err := b.client(ctx, t.Cluster)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	defer release()
+
+	var sb strings.Builder
+
+	for _, node := range t.Nodes {
+		out, err := fn(talosclient.WithNode(ctx, node), c)
+		if err != nil {
+			out = "error: " + err.Error() + "\n"
+		}
+
+		fmt.Fprintf(&sb, "--- node %s ---\n%s", node, out)
+	}
+
+	return tools.Text(sb.String()), nil, nil
+}
 
 // Register adds the Talos tools to the server.
 func Register(server *mcp.Server, routes Backends) {
@@ -227,66 +209,121 @@ func Register(server *mcp.Server, routes Backends) {
 }
 
 func talosGet(b backends) tools.Tool[talosGetInput] {
-	return talosTool(b, "talos_get",
-		"Get or list Talos COSI resources as YAML on each node, equivalent to `talosctl get`. Use type 'rd' to discover available types.",
-		func(props map[string]*jsonschema.Schema) {
-			props["type"].Description = "resource type or alias as accepted by talosctl get, e.g. members, service, machineconfig"
-			props["selector"].Description = "label selector for list, e.g. key=value"
+	return tools.Tool[talosGetInput]{
+		Def: &mcp.Tool{
+			Name:        "talos_get",
+			Description: "Get or list Talos COSI resources as YAML on each node, equivalent to `talosctl get`. Use type 'rd' to discover available types.",
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
+			InputSchema: tools.InputSchema[talosGetInput](func(props map[string]*jsonschema.Schema) {
+				targetSchema(props)
+				props["type"].Description = "resource type or alias as accepted by talosctl get, e.g. members, service, machineconfig"
+				props["selector"].Description = "label selector for list, e.g. key=value"
+			}),
 		},
-		func(ctx context.Context, c *talosclient.Client, in talosGetInput) (string, error) {
-			return tools.GetResources(ctx, c.COSI, in.ResourceQuery)
-		})
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosGetInput) (*mcp.CallToolResult, any, error) {
+			return b.eachNode(ctx, in.talosTarget, func(ctx context.Context, c *talosclient.Client) (string, error) {
+				return tools.GetResources(ctx, c.State(), in.ResourceQuery)
+			})
+		},
+	}
 }
 
 func talosLogs(b backends) tools.Tool[talosLogsInput] {
-	return talosTool(b, "talos_logs",
-		"Get service logs from each node, equivalent to `talosctl logs`.",
-		tailLines,
-		func(ctx context.Context, c *talosclient.Client, in talosLogsInput) (string, error) {
-			stream, err := c.Logs(ctx, constants.SystemContainerdNamespace, common.ContainerDriver_CONTAINERD, in.Service, false, int32(in.TailLines))
-			if err != nil {
-				return "", err
-			}
+	return tools.Tool[talosLogsInput]{
+		Def: &mcp.Tool{
+			Name:        "talos_logs",
+			Description: "Get service logs from each node, equivalent to `talosctl logs`.",
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
+			InputSchema: tools.InputSchema[talosLogsInput](func(props map[string]*jsonschema.Schema) {
+				targetSchema(props)
+				tailLines(props)
+			}),
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosLogsInput) (*mcp.CallToolResult, any, error) {
+			return b.eachNode(ctx, in.talosTarget, func(ctx context.Context, c *talosclient.Client) (string, error) {
+				stream, err := c.Logs(ctx, constants.SystemContainerdNamespace, common.ContainerDriver_CONTAINERD, in.Service, false, int32(in.TailLines))
+				if err != nil {
+					return "", err
+				}
 
-			return readStream(stream.Recv)
-		})
+				return readStream(stream.Recv)
+			})
+		},
+	}
 }
 
 func talosDmesg(b backends) tools.Tool[talosDmesgInput] {
-	return talosTool(b, "talos_dmesg",
-		"Get kernel log from each node, equivalent to `talosctl dmesg`.",
-		tailLines,
-		func(ctx context.Context, c *talosclient.Client, in talosDmesgInput) (string, error) {
-			stream, err := c.Dmesg(ctx, false, false)
-			if err != nil {
-				return "", err
-			}
+	return tools.Tool[talosDmesgInput]{
+		Def: &mcp.Tool{
+			Name:        "talos_dmesg",
+			Description: "Get kernel log from each node, equivalent to `talosctl dmesg`.",
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
+			InputSchema: tools.InputSchema[talosDmesgInput](func(props map[string]*jsonschema.Schema) {
+				targetSchema(props)
+				tailLines(props)
+			}),
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosDmesgInput) (*mcp.CallToolResult, any, error) {
+			return b.eachNode(ctx, in.talosTarget, func(ctx context.Context, c *talosclient.Client) (string, error) {
+				stream, err := c.Dmesg(ctx, false, false)
+				if err != nil {
+					return "", err
+				}
 
-			out, err := readStream(stream.Recv)
-			if err != nil {
-				return "", err
-			}
+				out, err := readStream(stream.Recv)
+				if err != nil {
+					return "", err
+				}
 
-			lines := strings.SplitAfter(out, "\n")
+				lines := strings.SplitAfter(out, "\n")
 
-			return strings.Join(lines[max(0, len(lines)-in.TailLines):], ""), nil
-		})
+				return strings.Join(lines[max(0, len(lines)-in.TailLines):], ""), nil
+			})
+		},
+	}
 }
 
 func talosVersion(b backends) tools.Tool[talosTarget] {
-	return talosTool(b, "talos_version",
-		"Get Talos version information from each node, equivalent to `talosctl version`.",
-		nil,
-		func(ctx context.Context, c *talosclient.Client, _ talosTarget) (string, error) {
-			resp, err := c.Version(ctx)
-			if err != nil {
-				return "", err
-			}
+	return tools.Tool[talosTarget]{
+		Def: &mcp.Tool{
+			Name:        "talos_version",
+			Description: "Get Talos version information from each node, equivalent to `talosctl version`.",
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
+			InputSchema: tools.InputSchema[talosTarget](targetSchema),
+		},
+		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosTarget) (*mcp.CallToolResult, any, error) {
+			return b.eachNode(ctx, in, func(ctx context.Context, c *talosclient.Client) (string, error) {
+				resp, err := c.Version(ctx)
+				if err != nil {
+					return "", err
+				}
 
-			out, err := protojson.Marshal(resp)
+				out, err := protojson.Marshal(resp)
 
-			return string(out) + "\n", err
-		})
+				return string(out) + "\n", err
+			})
+		},
+	}
 }
 
 // readStream drains a Talos data stream into a string.

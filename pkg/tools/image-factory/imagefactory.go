@@ -150,7 +150,12 @@ func factoryInfoTool(baseURL string) tools.Tool[struct{}] {
 		Def: &mcp.Tool{
 			Name:        "factory_info",
 			Description: "Get the Image Factory edition (standard or enterprise) and version.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			info, err := probe(ctx, baseURL)
@@ -168,7 +173,12 @@ func factoryVersions(c *client.Client) tools.Tool[struct{}] {
 		Def: &mcp.Tool{
 			Name:        "factory_versions",
 			Description: "List Talos versions available in Image Factory.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			v, err := c.Versions(ctx)
@@ -186,7 +196,12 @@ func factoryExtensions(c *client.Client) tools.Tool[talosVersionInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_extensions",
 			Description: "List system extensions and overlays available in Image Factory for a Talos version.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosVersionInput) (*mcp.CallToolResult, any, error) {
 			ext, err := c.ExtensionsVersions(ctx, in.TalosVersion)
@@ -209,7 +224,12 @@ func factorySchematicGet(c *client.Client) tools.Tool[schematicGetInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_schematic_get",
 			Description: "Get a schematic from Image Factory by ID.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in schematicGetInput) (*mcp.CallToolResult, any, error) {
 			s, err := c.SchematicGet(ctx, in.ID)
@@ -233,7 +253,12 @@ func factorySchematicCreate(c *client.Client) tools.Tool[schematicCreateInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_schematic_create",
 			Description: "Upload a schematic to Image Factory and return its ID along with the installer image and download base URL.",
-			Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: new(false)},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    false,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in schematicCreateInput) (*mcp.CallToolResult, any, error) {
 			s, err := schematic.Unmarshal([]byte(in.Schematic))
@@ -262,7 +287,12 @@ func factorySPDX(c *client.Client) tools.Tool[artifactInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_spdx",
 			Description: "Get the SPDX SBOM bundle (JSON) for a schematic, Talos version and architecture. Image Factory Enterprise only.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 			InputSchema: tools.InputSchema[artifactInput](archSchema),
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in artifactInput) (*mcp.CallToolResult, any, error) {
@@ -281,7 +311,12 @@ func factoryScanReport(c *client.Client) tools.Tool[scanReportInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_scan_report",
 			Description: "Get the vulnerability scan report for a schematic, Talos version and architecture. Image Factory Enterprise only.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 			InputSchema: tools.InputSchema[scanReportInput](func(props map[string]*jsonschema.Schema) {
 				archSchema(props)
 				props["format"].Enum = []any{"table", "json", "sarif", "cdx"}
@@ -305,7 +340,12 @@ func factoryVEX(c *client.Client) tools.Tool[talosVersionInput] {
 		Def: &mcp.Tool{
 			Name:        "factory_vex",
 			Description: "Get the VEX document (JSON) for a Talos version. Image Factory Enterprise only.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(true),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in talosVersionInput) (*mcp.CallToolResult, any, error) {
 			out, err := c.VEXDocument(ctx, in.TalosVersion)

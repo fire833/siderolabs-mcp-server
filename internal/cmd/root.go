@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -80,6 +81,11 @@ func run(ctx context.Context, cmd *cli.Command, serve func(*mcp.Server) error) e
 
 	if err = imagefactory.Register(ctx, server, cmd.String("image-factory-url")); err != nil {
 		return err
+	}
+
+	// unknown names are ignored, so one list works across backend setups
+	for name := range strings.SplitSeq(os.Getenv("MCP_DISABLED_TOOLS"), ",") {
+		server.RemoveTools(strings.TrimSpace(name))
 	}
 
 	return serve(server)

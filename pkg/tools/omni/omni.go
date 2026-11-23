@@ -72,9 +72,15 @@ func omniGet(st state.State) tools.Tool[tools.ResourceQuery] {
 	return tools.Tool[tools.ResourceQuery]{
 		Def: &mcp.Tool{
 			Name: "omni_get",
-			Description: "Get or list Omni COSI resources as YAML, equivalent to `omnictl get`. Use type 'resourcedefinitions' to discover available types. " +
+			Description: "Get or list Omni COSI resources as YAML, equivalent to `omnictl get`. " +
+				"Use type 'resourcedefinitions' to discover available types. " +
 				"Output is unredacted and may contain credentials, e.g. join tokens embedded in machine status.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
 			InputSchema: tools.InputSchema[tools.ResourceQuery](func(props map[string]*jsonschema.Schema) {
 				props["type"].Description = "resource type or alias as accepted by omnictl get, e.g. clusters, machinestatus"
 				props["selector"].Description = "label selector for list, e.g. omni.sidero.dev/cluster=foo"
@@ -96,7 +102,12 @@ func omniTalosconfig(c *client.Client) tools.Tool[clusterInput] {
 		Def: &mcp.Tool{
 			Name:        "omni_talosconfig",
 			Description: "Get talosconfig for a cluster managed by Omni. The output is a credential granting Talos API access to the cluster nodes.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in clusterInput) (*mcp.CallToolResult, any, error) {
 			cfg, err := c.Management().WithCluster(in.Cluster).Talosconfig(ctx)
@@ -112,9 +123,15 @@ func omniTalosconfig(c *client.Client) tools.Tool[clusterInput] {
 func omniKubeconfig(c *client.Client) tools.Tool[kubeconfigInput] {
 	return tools.Tool[kubeconfigInput]{
 		Def: &mcp.Tool{
-			Name:        "omni_kubeconfig",
-			Description: "Get a service-account kubeconfig for a cluster managed by Omni. The output is a cluster-admin (system:masters) credential valid for ttl.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Name: "omni_kubeconfig",
+			Description: "Get a service-account kubeconfig for a cluster managed by Omni. " +
+				"The output is a cluster-admin (system:masters) credential valid for ttl.",
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    false,
+				DestructiveHint: new(false),
+				IdempotentHint:  false,
+				OpenWorldHint:   new(false),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in kubeconfigInput) (*mcp.CallToolResult, any, error) {
 			ttl := time.Hour
@@ -145,7 +162,12 @@ func omniTemplateSync(st state.State) tools.Tool[templateInput] {
 			Name: "omni_template_sync",
 			Description: "Create or update a cluster from an Omni cluster template, equivalent to `omnictl cluster template sync`. " +
 				"Run with dry_run true first to preview the changes; dry_run false applies them.",
-			Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true)},
+			Annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    false,
+				DestructiveHint: new(true),
+				IdempotentHint:  true,
+				OpenWorldHint:   new(false),
+			},
 		},
 		Handler: func(ctx context.Context, _ *mcp.CallToolRequest, in templateInput) (*mcp.CallToolResult, any, error) {
 			out, err := syncTemplate(ctx, st, in)

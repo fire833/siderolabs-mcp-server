@@ -12,7 +12,6 @@ import (
 	"github.com/cosi-project/runtime/pkg/resource/meta"
 	"github.com/cosi-project/runtime/pkg/state"
 	"github.com/cosi-project/runtime/pkg/state/impl/inmem"
-	"github.com/cosi-project/runtime/pkg/state/impl/namespaced"
 
 	"github.com/siderolabs/mcp-server/pkg/tools"
 )
@@ -22,7 +21,7 @@ import (
 func NewState(t *testing.T) state.State {
 	t.Helper()
 
-	st := state.WrapCore(namespaced.NewState(inmem.Build))
+	st := state.WrapCore(inmem.NewState())
 
 	rd, err := meta.NewResourceDefinition((&meta.ResourceDefinition{}).ResourceDefinition())
 	if err != nil {
